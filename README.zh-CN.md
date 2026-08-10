@@ -12,7 +12,20 @@
 
 可选完整性校验：运行 `shasum -a 256 Universal-Extractor-v1.5.0-macOS-arm64.zip`，正确的 SHA-256 应为 `3245ef24572f78639b29ca0fb099f6d90e08f11f895850294ff5d3adc8a04b33`。
 
-下载后解压 ZIP。首次启动时请按住 Control 点击“万能解压”，选择“打开”，再确认 macOS 提示。公开构建采用 Hardened Runtime 的 ad-hoc 签名，但没有 Developer ID 签名或 Apple 公证。不要全局关闭 Gatekeeper，也不要全局移除 quarantine 属性。
+## 首次打开：在 macOS 中批准 App
+
+公开构建采用 Hardened Runtime 的 ad-hoc 签名，但没有 Developer ID 签名或 Apple 公证，因此 Gatekeeper 可能拦截首次启动。仅应对从本仓库下载且已核对上述 SHA-256 的 App 执行以下操作。
+
+1. 解压下载的 ZIP；如有需要，可将“万能解压”拖入“应用程序”文件夹。
+2. 在访达中先连按一次 App。如果 macOS 阻止打开，请点按“完成”关闭警告。必须先尝试打开一次，系统设置中才会出现批准按钮。
+3. 打开“苹果菜单 → 系统设置 → 隐私与安全性”。
+4. 向下滚动到“安全性”，找到“万能解压已被阻止”的提示，然后点按“仍要打开”。部分 macOS 版本会先显示“打开”按钮。该批准按钮通常只在尝试打开 App 后约一小时内显示。
+5. 使用登录密码或触控 ID 进行认证，然后在确认对话框中点按“打开”。
+6. macOS 会将此 App 保存为安全性例外，以后可直接连按正常启动。
+
+快捷方式：也可以在访达中按住 Control 点击 App，然后选择“打开”。如果仍然无法打开，请按照上面的“系统设置”步骤操作。
+
+不要关闭 Gatekeeper，也不要运行全局移除 quarantine 属性的命令。如果 macOS 提示该 App **将损坏你的电脑**、包含恶意软件或已被移到废纸篓，请勿强行绕过；应从官方 Release 重新下载并报告问题。详情参阅 [Apple 官方“通过覆盖安全性设置来打开 App”说明](https://support.apple.com/zh-cn/guide/mac-help/mh40617/mac)。
 
 ## 功能亮点
 

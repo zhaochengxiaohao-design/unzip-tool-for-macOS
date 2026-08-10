@@ -12,7 +12,20 @@ Apple Silicon · macOS 14 or later · one ZIP containing the complete applicatio
 
 Optional integrity check: run `shasum -a 256 Universal-Extractor-v1.5.0-macOS-arm64.zip`. The expected SHA-256 is `3245ef24572f78639b29ca0fb099f6d90e08f11f895850294ff5d3adc8a04b33`.
 
-After downloading, extract the ZIP. On first launch, Control-click **Universal Extractor**, choose **Open**, and confirm the macOS prompt. The public build is ad-hoc signed with Hardened Runtime, but it is not Developer ID signed or Apple-notarized. Do not disable Gatekeeper or remove quarantine attributes globally.
+## First Launch: Allow the App in macOS
+
+The public build is ad-hoc signed with Hardened Runtime, but it is not Developer ID signed or Apple-notarized. Gatekeeper may therefore block the first launch. Use this approval flow only for the archive downloaded from this repository after checking the SHA-256 above.
+
+1. Extract the downloaded ZIP, then move **Universal Extractor** to **Applications** if desired.
+2. In Finder, double-click the app once. If macOS blocks it, click **Done** to close the warning. This first attempt is required before the approval control appears.
+3. Choose **Apple menu → System Settings → Privacy & Security**.
+4. Scroll down to **Security**. Find the message saying that Universal Extractor was blocked, then click **Open Anyway**. On some macOS versions, an **Open** button appears first. The approval button is available for about one hour after the blocked launch attempt.
+5. Authenticate with your login password or Touch ID, then click **Open** in the confirmation dialog.
+6. macOS saves the app as an exception. Future launches work with a normal double-click.
+
+Quick alternative: in Finder, Control-click the app and choose **Open**. If that still does not work, follow the System Settings steps above.
+
+Do not disable Gatekeeper and do not run commands that remove quarantine attributes globally. If macOS says the app **will damage your computer**, contains malware, or was moved to Trash, do not override the warning; download it again from the official Release and report the problem. See [Apple's official instructions for overriding app security settings](https://support.apple.com/guide/mac-help/open-an-app-by-overriding-security-settings-mh40617/mac).
 
 ## Highlights
 
