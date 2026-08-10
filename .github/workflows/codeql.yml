@@ -8,6 +8,10 @@ on:
   schedule:
     - cron: "23 17 * * 1"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -32,7 +36,7 @@ jobs:
           build-mode: manual
 
       - name: Build Swift package
-        run: swift build -Xswiftc -warnings-as-errors
+        run: swift build --arch arm64 --product UniversalExtractorApp -Xswiftc -warnings-as-errors
 
       - name: Analyze
         uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
