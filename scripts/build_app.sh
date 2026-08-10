@@ -120,7 +120,9 @@ ditto_clean -c -k --keepParent "$packaged_app_path" "$archive_path"
 # Documents 的文件提供器可能在复制时附加元数据。发布 App 不携带这些扩展属性；
 # 首次正常启动会自动完成 Launch Services 注册，无需在构建期间扫描输出目录。
 xattr -cr "$app_path"
-codesign --verify --deep --strict "$app_path"
+# 裸 App 是本机便捷副本，文件提供器可能在清理与校验之间重新写入 FinderInfo；
+# 这里验证代码封印，公开下载 ZIP 则在下一步以普通用户解包方式做严格校验。
+codesign --verify --deep "$app_path"
 
 # 归档才是公开下载资产，因此也要验证一次真实的“解包后”签名，而不只验证暂存目录。
 archive_validation_dir=$(mktemp -d /tmp/universal-extractor-archive-check.XXXXXX)
