@@ -1,0 +1,17 @@
+Universal Extractor / 万能解压 — Third-Party Software Notices / 第三方软件声明
+
+English
+This application includes the 7-Zip 26.02 command-line component for macOS (7zz).
+7-Zip Copyright (C) 1999-2026 Igor Pavlov.
+
+Most 7-Zip source code is distributed under the GNU LGPL. Portions are covered by the BSD 3-clause license, and RAR extraction code is subject to the unRAR license restriction.
+
+中文
+本应用使用 7-Zip 26.02 的 macOS 命令行组件（7zz）。
+7-Zip Copyright (C) 1999-2026 Igor Pavlov。
+
+7-Zip 的大部分源代码根据 GNU LGPL 许可发布，部分代码受 BSD 3-clause 许可约束；RAR 解压相关代码受 unRAR 许可限制。
+
+Project and source / 项目主页与源代码：https://www.7-zip.org/
+License details / 许可详情：https://www.7-zip.org/license.txt
+GNU LGPL：https://www.gnu.org/licenses/lgpl-2.1.html

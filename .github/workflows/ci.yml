@@ -1,0 +1,31 @@
+name: macOS CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate localization files
+        run: find Packaging/Localization -name '*.strings' -exec plutil -lint {} \;
+
+      - name: Download official 7-Zip 26.02
+        run: |
+          curl -fsSL https://github.com/ip7z/7zip/releases/download/26.02/7z2602-mac.tar.xz -o "$RUNNER_TEMP/7zip.tar.xz"
+          tar -xJf "$RUNNER_TEMP/7zip.tar.xz" -C "$RUNNER_TEMP"
+          chmod +x "$RUNNER_TEMP/7zz"
+
+      - name: Build
+        run: swift build
+
+      - name: Run core checks
+        run: swift run CoreChecks
+
+      - name: Run real-engine integration checks
+        env:
+          SEVENZIP_BIN: ${{ runner.temp }}/7zz
+        run: swift run EngineChecks
