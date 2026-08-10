@@ -57,8 +57,15 @@ public enum ArchiveUtilities {
     public static func uniqueURL(for desiredURL: URL, fileManager: FileManager = .default) -> URL {
         guard fileManager.fileExists(atPath: desiredURL.path) else { return desiredURL }
         let parent = desiredURL.deletingLastPathComponent()
-        let ext = desiredURL.pathExtension
-        let base = ext.isEmpty ? desiredURL.lastPathComponent : desiredURL.deletingPathExtension().lastPathComponent
+        let lower = desiredURL.lastPathComponent.lowercased()
+        let compound = compoundExtensions.first(where: { lower.hasSuffix($0) })
+        let ext = compound.map { String($0.dropFirst()) } ?? desiredURL.pathExtension
+        let base: String
+        if let compound {
+            base = String(desiredURL.lastPathComponent.dropLast(compound.count))
+        } else {
+            base = ext.isEmpty ? desiredURL.lastPathComponent : desiredURL.deletingPathExtension().lastPathComponent
+        }
         var number = 2
         while true {
             let name = ext.isEmpty ? "\(base) \(number)" : "\(base) \(number).\(ext)"
@@ -66,6 +73,28 @@ public enum ArchiveUtilities {
             if !fileManager.fileExists(atPath: candidate.path) { return candidate }
             number += 1
         }
+    }
+
+    public static func sanitizedArchiveName(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != ".", trimmed != ".." else { return nil }
+        let forbidden = CharacterSet(charactersIn: "/:\0")
+        guard trimmed.rangeOfCharacter(from: forbidden) == nil else { return nil }
+        return trimmed
+    }
+
+    public static func archiveFileName(baseName: String, format: CompressionFormat) -> String? {
+        guard var name = sanitizedArchiveName(baseName) else { return nil }
+        let suffix = ".\(format.fileExtension)"
+        if name.lowercased().hasSuffix(suffix.lowercased()) { return name }
+        let knownExtensions = CompressionFormat.allCases
+            .map { ".\($0.fileExtension)" }
+            .sorted { $0.count > $1.count }
+        if let existing = knownExtensions.first(where: { name.lowercased().hasSuffix($0.lowercased()) }) {
+            name.removeLast(existing.count)
+        }
+        guard !name.isEmpty else { return nil }
+        return name + suffix
     }
 
     private static func capture(in value: String, pattern: String) -> [String]? {

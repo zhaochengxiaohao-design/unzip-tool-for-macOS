@@ -60,6 +60,111 @@ public enum CollisionPolicy: String, CaseIterable, Codable, Sendable {
     }
 }
 
+public enum CompressionFormat: String, CaseIterable, Codable, Sendable {
+    case sevenZip
+    case zip
+    case tar
+    case tarGzip
+    case tarBzip2
+    case tarXz
+    case gzip
+    case bzip2
+    case xz
+
+    public var label: String {
+        switch self {
+        case .sevenZip: return "7Z"
+        case .zip: return "ZIP"
+        case .tar: return "TAR"
+        case .tarGzip: return "TAR.GZ"
+        case .tarBzip2: return "TAR.BZ2"
+        case .tarXz: return "TAR.XZ"
+        case .gzip: return "GZIP"
+        case .bzip2: return "BZIP2"
+        case .xz: return "XZ"
+        }
+    }
+
+    public var fileExtension: String {
+        switch self {
+        case .sevenZip: return "7z"
+        case .zip: return "zip"
+        case .tar: return "tar"
+        case .tarGzip: return "tar.gz"
+        case .tarBzip2: return "tar.bz2"
+        case .tarXz: return "tar.xz"
+        case .gzip: return "gz"
+        case .bzip2: return "bz2"
+        case .xz: return "xz"
+        }
+    }
+
+    public var supportsPassword: Bool { self == .sevenZip || self == .zip }
+    public var requiresSingleRegularFile: Bool { self == .gzip || self == .bzip2 || self == .xz }
+}
+
+public enum CompressionLevel: Int, CaseIterable, Codable, Sendable {
+    case store = 0
+    case fast = 1
+    case normal = 5
+    case maximum = 9
+
+    public var label: String {
+        switch self {
+        case .store: return AppLocalization.text("仅存储")
+        case .fast: return AppLocalization.text("快速")
+        case .normal: return AppLocalization.text("标准")
+        case .maximum: return AppLocalization.text("极限")
+        }
+    }
+}
+
+public struct CompressionRequest: Sendable {
+    public let inputs: [URL]
+    public let outputURL: URL
+    public let format: CompressionFormat
+    public let level: CompressionLevel
+    public let password: String?
+
+    public init(inputs: [URL], outputURL: URL, format: CompressionFormat, level: CompressionLevel, password: String?) {
+        self.inputs = inputs
+        self.outputURL = outputURL
+        self.format = format
+        self.level = level
+        self.password = password
+    }
+}
+
+public enum CompressionState: String, Sendable {
+    case idle
+    case compressing
+    case completed
+    case failed
+    case cancelled
+}
+
+public enum CompressionError: LocalizedError, Equatable, Sendable {
+    case noInput
+    case invalidName
+    case destinationUnavailable
+    case singleRegularFileRequired
+    case passwordUnsupported
+    case zipPasswordRequiresASCII
+    case outputInsideInput
+
+    public var errorDescription: String? {
+        switch self {
+        case .noInput: return AppLocalization.text("请先添加要压缩的文件或文件夹。")
+        case .invalidName: return AppLocalization.text("请输入有效的压缩包名称。")
+        case .destinationUnavailable: return AppLocalization.text("请选择可用的压缩包保存目录。")
+        case .singleRegularFileRequired: return AppLocalization.text("GZIP、BZIP2 和 XZ 只能压缩一个普通文件；如需压缩多个项目，请选择 TAR.GZ、TAR.BZ2 或 TAR.XZ。")
+        case .passwordUnsupported: return AppLocalization.text("所选格式不支持密码保护。")
+        case .zipPasswordRequiresASCII: return AppLocalization.text("受 ZIP 格式兼容性限制，ZIP 密码仅支持英文、数字和常用半角符号；如需使用中文密码，请选择 7Z。")
+        case .outputInsideInput: return AppLocalization.text("压缩包不能保存到正在压缩的文件夹内部，请选择其上级目录或其他目录。")
+        }
+    }
+}
+
 public struct ArchiveJob: Identifiable, Equatable, Sendable {
     public let id: UUID
     public let sourceURL: URL
@@ -142,5 +247,10 @@ public protocol ArchiveEngine: AnyObject {
     func inspect(_ archive: URL, password: String?) async throws -> ArchiveInspection
     func test(_ archive: URL, password: String?, progress: @escaping @Sendable (Double) -> Void) async throws
     func extract(_ archive: URL, to destination: URL, password: String?, progress: @escaping @Sendable (Double) -> Void) async throws
+    func cancel()
+}
+
+public protocol ArchiveCompressionEngine: AnyObject {
+    func compress(_ request: CompressionRequest, progress: @escaping @Sendable (Double) -> Void) async throws
     func cancel()
 }

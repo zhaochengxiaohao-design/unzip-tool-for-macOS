@@ -2,12 +2,14 @@
 
 简体中文 | [English](README.md)
 
-面向 Apple Silicon Mac 的原生 SwiftUI 解压工具。万能解压根据文件内容识别压缩格式，安全处理解压任务，并支持不打开主窗口的 Finder 右键解压。
+面向 Apple Silicon Mac 的原生 SwiftUI 压缩与解压工具。万能解压根据文件内容识别压缩格式，也可创建常用格式压缩包，安全处理任务，并支持不打开主窗口的 Finder 右键解压。
 
 ## 功能亮点
 
 - 根据文件内容识别格式，不依赖文件扩展名。
 - 支持 ZIP、7Z、RAR/RAR5、TAR、GZ、BZ2、XZ、`tar.gz`、`tar.bz2`、`tar.xz` 及常见分卷压缩包。
+- 可创建 7Z、ZIP、TAR、`tar.gz`、`tar.bz2`、`tar.xz`，以及单文件 GZIP、BZIP2、XZ 压缩包。
+- 支持压缩级别、输出重名自动编号、进度、取消及 7Z/ZIP 密码保护。RAR 格式专有，因此不支持创建。
 - 支持加密压缩包，密码不会写入进程参数、日志、偏好设置或文件。
 - 支持多任务队列，并将组合压缩格式完整展开到最终内容。
 - 提供两种输出模式：
@@ -34,8 +36,8 @@
 脚本会运行核心检查和真实解压引擎集成测试，构建 arm64 发布版，执行 ad-hoc 签名，刷新 Finder 注册，并生成：
 
 - `outputs/万能解压.app`
-- `outputs/Universal-Extractor-v1.4.0-macOS-arm64.zip`
-- `outputs/Universal-Extractor-v1.4.0-Source.zip`
+- `outputs/Universal-Extractor-v1.5.0-macOS-arm64.zip`
+- `outputs/Universal-Extractor-v1.5.0-Source.zip`
 
 由于未使用 Apple Developer ID，应用未经过公证。如需公开分发，请增加 Developer ID 签名和 Apple 公证流程。
 
@@ -47,6 +49,8 @@
 - 始终先解压到目标位置旁的隐藏临时目录，验证成功后再移动文件。
 - 任务取消、密码错误、文件损坏或解压失败时清理临时数据。
 - 永不持久化保存压缩包密码。
+- 创建压缩包时通过受控标准输入传递密码，不写入命令参数；因 7-Zip 的 ZIP 兼容限制，ZIP 密码限英文、数字和半角符号，7Z 支持中文密码。
+- 禁止将输出压缩包保存到正在压缩的文件夹内部，避免递归包含输出。
 
 ## 本地化
 

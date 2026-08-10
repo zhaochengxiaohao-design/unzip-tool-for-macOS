@@ -2,12 +2,14 @@
 
 [简体中文](README.zh-CN.md) | English
 
-A native SwiftUI archive extractor for Apple Silicon Macs. Universal Extractor detects archive formats from file contents, runs extraction jobs safely, and integrates with Finder without forcing the main window to open.
+A native SwiftUI compression and extraction utility for Apple Silicon Macs. It detects archives from file contents, creates common archive formats, runs extraction jobs safely, and integrates with Finder without forcing the main window to open.
 
 ## Highlights
 
 - Detects formats by content instead of trusting filename extensions.
 - Supports ZIP, 7Z, RAR/RAR5, TAR, GZ, BZ2, XZ, `tar.gz`, `tar.bz2`, `tar.xz`, and common split archives.
+- Creates 7Z, ZIP, TAR, `tar.gz`, `tar.bz2`, `tar.xz`, plus single-file GZIP, BZIP2, and XZ archives.
+- Supports compression levels, safe automatic output naming, progress, cancellation, and password-protected 7Z/ZIP archives. RAR creation is not available because the format is proprietary.
 - Handles password-protected archives without storing passwords in arguments, logs, preferences, or files.
 - Queues multiple archives and expands compound formats to their final contents.
 - Offers two output modes:
@@ -34,8 +36,8 @@ Requirements:
 The script runs core and real-engine integration checks, builds an arm64 release, applies an ad-hoc signature, refreshes Finder registration, and creates:
 
 - `outputs/万能解压.app`
-- `outputs/Universal-Extractor-v1.4.0-macOS-arm64.zip`
-- `outputs/Universal-Extractor-v1.4.0-Source.zip`
+- `outputs/Universal-Extractor-v1.5.0-macOS-arm64.zip`
+- `outputs/Universal-Extractor-v1.5.0-Source.zip`
 
 The app is not notarized because no Apple Developer ID is used. For redistribution, add Developer ID signing and Apple notarization.
 
@@ -47,6 +49,8 @@ The app is not notarized because no Apple Developer ID is used. For redistributi
 - Extracts into a hidden staging directory beside the destination and only moves files after validation.
 - Cleans staging data after cancellation, password errors, corruption, or extraction failures.
 - Never persists archive passwords.
+- Passes creation passwords through controlled standard input instead of command-line arguments; ZIP passwords are limited to ASCII for 7-Zip interoperability, while 7Z supports Unicode passwords.
+- Prevents an archive from being created inside a folder that is itself being compressed.
 
 ## Localization
 

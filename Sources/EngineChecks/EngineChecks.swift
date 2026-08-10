@@ -37,6 +37,75 @@ struct EngineChecks {
             try manager.copyItem(at: sevenZip, to: wrongExtension)
 
             let engine = SevenZipEngine(executableURL: engineURL)
+            let compressionOutputs: [(CompressionFormat, URL)] = [
+                (.sevenZip, root.appendingPathComponent("created.7z")),
+                (.zip, root.appendingPathComponent("created.zip")),
+                (.tar, root.appendingPathComponent("created.tar")),
+                (.tarGzip, root.appendingPathComponent("created.tar.gz")),
+                (.tarBzip2, root.appendingPathComponent("created.tar.bz2")),
+                (.tarXz, root.appendingPathComponent("created.tar.xz"))
+            ]
+            for (format, output) in compressionOutputs {
+                try await engine.compress(CompressionRequest(
+                    inputs: [source], outputURL: output, format: format, level: .normal, password: nil
+                )) { _ in }
+                guard manager.fileExists(atPath: output.path) else { throw CheckError("未创建 \(format.label)") }
+                let inspection = try await engine.inspect(output, password: nil)
+                guard !inspection.format.isEmpty || !inspection.entries.isEmpty else { throw CheckError("创建的 \(format.label) 无法识别") }
+                try await engine.test(output, password: nil) { _ in }
+                print("✓ 创建并校验：\(format.label)")
+            }
+
+            let sourceFile = source.appendingPathComponent("中文 文件.txt")
+            for format in [CompressionFormat.gzip, .bzip2, .xz] {
+                let output = root.appendingPathComponent("single.\(format.fileExtension)")
+                try await engine.compress(CompressionRequest(
+                    inputs: [sourceFile], outputURL: output, format: format, level: .normal, password: nil
+                )) { _ in }
+                let outputDirectory = root.appendingPathComponent("single-output-\(format.rawValue)", isDirectory: true)
+                try manager.createDirectory(at: outputDirectory, withIntermediateDirectories: false)
+                try await engine.extract(output, to: outputDirectory, password: nil) { _ in }
+                let files = try manager.contentsOfDirectory(at: outputDirectory, includingPropertiesForKeys: nil)
+                guard files.count == 1,
+                      try String(contentsOf: files[0], encoding: .utf8) == "你好，Universal Extractor! 🗜️" else {
+                    throw CheckError("单文件 \(format.label) 往返失败")
+                }
+                print("✓ 单文件压缩往返：\(format.label)")
+            }
+
+            for format in [CompressionFormat.sevenZip, .zip] {
+                let output = root.appendingPathComponent("protected.\(format.fileExtension)")
+                let creationPassword = format == .sevenZip ? "压缩密码" : "zip-password-123"
+                try await engine.compress(CompressionRequest(
+                    inputs: [source], outputURL: output, format: format, level: .normal, password: creationPassword
+                )) { _ in }
+                do {
+                    try await engine.test(output, password: nil) { _ in }
+                    throw CheckError("创建的加密 \(format.label) 未要求密码")
+                } catch ArchiveEngineError.passwordRequired {
+                    // Expected.
+                }
+                try await engine.test(output, password: creationPassword) { _ in }
+                print("✓ 密码压缩并校验：\(format.label)")
+            }
+
+            for (_, compound) in compressionOutputs.filter({ [.tarGzip, .tarBzip2, .tarXz].contains($0.0) }) {
+                let compoundDestination = root.appendingPathComponent("created-compound-\(UUID().uuidString)", isDirectory: true)
+                try manager.createDirectory(at: compoundDestination, withIntermediateDirectories: true)
+                let coordinator = await MainActor.run { ExtractionCoordinator(engine: SevenZipEngine(executableURL: engineURL)) }
+                await MainActor.run {
+                    coordinator.setDestination(compoundDestination)
+                    coordinator.addFiles([compound], outputMode: .separateFolder)
+                }
+                let completedJob = try await waitForCompletion(coordinator)
+                guard completedJob.state == .completed,
+                      let outputURL = completedJob.outputURL,
+                      manager.fileExists(atPath: outputURL.appendingPathComponent("source/中文 文件.txt").path) else {
+                    throw CheckError("创建的组合格式未完全展开：\(compound.lastPathComponent) — \(completedJob.detail)")
+                }
+                print("✓ 创建的组合格式完全展开：\(compound.lastPathComponent)")
+            }
+
             for archive in [zip, sevenZip, mystery, wrongExtension] {
                 let inspection = try await engine.inspect(archive, password: nil)
                 guard !inspection.entries.isEmpty else { throw CheckError("未识别 \(archive.lastPathComponent)") }

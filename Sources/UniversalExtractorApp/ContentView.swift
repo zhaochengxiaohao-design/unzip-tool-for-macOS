@@ -5,10 +5,24 @@ import UniversalExtractorCore
 
 struct ContentView: View {
     @ObservedObject var coordinator: ExtractionCoordinator
+    @ObservedObject var compressionCoordinator: CompressionCoordinator
     @ObservedObject var openFileRouter: OpenFileRouter
     @AppStorage("outputMode") private var outputModeRaw = OutputMode.separateFolder.rawValue
     @State private var isDropTargeted = false
     @State private var showAbout = false
+    @State private var workspaceMode = WorkspaceMode.extract
+
+    private enum WorkspaceMode: String, CaseIterable {
+        case extract
+        case compress
+
+        var label: String {
+            switch self {
+            case .extract: return AppLocalization.text("解压")
+            case .compress: return AppLocalization.text("压缩")
+            }
+        }
+    }
 
     private var outputMode: Binding<OutputMode> {
         Binding(
@@ -28,9 +42,19 @@ struct ContentView: View {
 
             VStack(spacing: 18) {
                 header
-                destinationCard
-                dropZone
-                queueSection
+                Picker("操作", selection: $workspaceMode) {
+                    ForEach(WorkspaceMode.allCases, id: \.self) { mode in Text(mode.label).tag(mode) }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 360)
+
+                if workspaceMode == .extract {
+                    destinationCard
+                    dropZone
+                    queueSection
+                } else {
+                    CompressionView(coordinator: compressionCoordinator)
+                }
             }
             .padding(24)
         }
@@ -42,12 +66,17 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showAbout) { AboutView() }
         .alert("提示", isPresented: Binding(
-            get: { coordinator.presentedError != nil },
-            set: { if !$0 { coordinator.presentedError = nil } }
+            get: { coordinator.presentedError != nil || compressionCoordinator.presentedError != nil },
+            set: {
+                if !$0 {
+                    coordinator.presentedError = nil
+                    compressionCoordinator.presentedError = nil
+                }
+            }
         )) {
             Button("好", role: .cancel) { coordinator.presentedError = nil }
         } message: {
-            Text(coordinator.presentedError ?? "")
+            Text(coordinator.presentedError ?? compressionCoordinator.presentedError ?? "")
         }
         .onReceive(openFileRouter.$generation) { _ in
             let pending = openFileRouter.takePending()
@@ -77,7 +106,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("万能解压")
                     .font(.system(size: 25, weight: .bold, design: .rounded))
-                Text("自动识别格式，安全解压到你指定的位置")
+                Text("自动识别、解压并创建常用格式压缩包")
                     .foregroundStyle(.secondary)
             }
             Spacer()
@@ -404,7 +433,7 @@ private struct AboutView: View {
                 .font(.system(size: 46))
                 .foregroundStyle(Color.accentColor)
             Text("万能解压").font(.title.bold())
-            Text("版本 1.4.0 · Apple Silicon")
+            Text("版本 1.5.0 · Apple Silicon")
                 .foregroundStyle(.secondary)
             Divider()
             Text("本应用使用 7-Zip 26.02 命令行组件。7-Zip 按 GNU LGPL 许可发布，部分代码受 unRAR 许可约束。")

@@ -1,6 +1,6 @@
 import Foundation
 
-public final class SevenZipEngine: ArchiveEngine, @unchecked Sendable {
+public final class SevenZipEngine: ArchiveEngine, ArchiveCompressionEngine, @unchecked Sendable {
     private let executableURL: URL?
     private let processLock = NSLock()
     private var activeProcess: Process?
@@ -48,6 +48,59 @@ public final class SevenZipEngine: ArchiveEngine, @unchecked Sendable {
             progress: progress
         )
         try classifyFailure(result, archive: archive, suppliedPassword: password != nil)
+    }
+
+    public func compress(_ request: CompressionRequest, progress: @escaping @Sendable (Double) -> Void) async throws {
+        guard !request.inputs.isEmpty else { throw CompressionError.noInput }
+        if request.format.requiresSingleRegularFile {
+            guard request.inputs.count == 1,
+                  (try? request.inputs[0].resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+                throw CompressionError.singleRegularFileRequired
+            }
+        }
+        if request.password != nil && !request.format.supportsPassword {
+            throw CompressionError.passwordUnsupported
+        }
+        if request.format == .zip, let password = request.password, !password.unicodeScalars.allSatisfy(\.isASCII) {
+            throw CompressionError.zipPasswordRequiresASCII
+        }
+        try validateOutputIsOutsideInputs(request)
+
+        switch request.format {
+        case .tarGzip, .tarBzip2, .tarXz:
+            try await compressTarWrapper(request, progress: progress)
+        default:
+            let type: String
+            switch request.format {
+            case .sevenZip: type = "7z"
+            case .zip: type = "zip"
+            case .tar: type = "tar"
+            case .gzip: type = "gzip"
+            case .bzip2: type = "bzip2"
+            case .xz: type = "xz"
+            default: preconditionFailure("Handled above")
+            }
+            try await createArchive(
+                type: type,
+                inputs: request.inputs,
+                output: request.outputURL,
+                level: request.level,
+                password: request.password,
+                progress: progress
+            )
+        }
+    }
+
+    private func validateOutputIsOutsideInputs(_ request: CompressionRequest) throws {
+        let outputPath = request.outputURL.standardizedFileURL.path
+        for input in request.inputs {
+            let values = try input.resourceValues(forKeys: [.isDirectoryKey])
+            guard values.isDirectory == true else { continue }
+            let directoryPath = input.standardizedFileURL.path
+            if outputPath == directoryPath || outputPath.hasPrefix(directoryPath.hasSuffix("/") ? directoryPath : directoryPath + "/") {
+                throw CompressionError.outputInsideInput
+            }
+        }
     }
 
     public func cancel() {
@@ -130,6 +183,7 @@ public final class SevenZipEngine: ArchiveEngine, @unchecked Sendable {
     private func run(
         arguments: [String],
         password: String?,
+        passwordResponseCount: Int = 1,
         progress: (@Sendable (Double) -> Void)?
     ) async throws -> ProcessResult {
         guard let executableURL, FileManager.default.isExecutableFile(atPath: executableURL.path) else {
@@ -175,7 +229,8 @@ public final class SevenZipEngine: ArchiveEngine, @unchecked Sendable {
             do {
                 try process.run()
                 if let password {
-                    inputPipe.fileHandleForWriting.write(Data((password + "\n").utf8))
+                    let responses = Array(repeating: password, count: max(passwordResponseCount, 1)).joined(separator: "\n") + "\n"
+                    inputPipe.fileHandleForWriting.write(Data(responses.utf8))
                     try? inputPipe.fileHandleForWriting.close()
                 }
             } catch {
@@ -185,6 +240,58 @@ public final class SevenZipEngine: ArchiveEngine, @unchecked Sendable {
                 processLock.unlock()
                 continuation.resume(throwing: error)
             }
+        }
+    }
+
+    private func createArchive(
+        type: String,
+        inputs: [URL],
+        output: URL,
+        level: CompressionLevel,
+        password: String?,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws {
+        var arguments = ["a", "-t\(type)", "-y", "-bso1", "-bse1", "-bsp1"]
+        if type != "tar" { arguments.append("-mx=\(level.rawValue)") }
+        if password != nil {
+            arguments.append("-p")
+            if type == "7z" { arguments.append("-mhe=on") }
+            if type == "zip" { arguments.append("-mem=AES256") }
+        }
+        arguments.append(output.path)
+        arguments.append(contentsOf: inputs.map(\.path))
+        let result = try await run(
+            arguments: arguments,
+            password: password,
+            passwordResponseCount: 1,
+            progress: progress
+        )
+        try classifyFailure(result, archive: output, suppliedPassword: password != nil)
+    }
+
+    private func compressTarWrapper(
+        _ request: CompressionRequest,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("UniversalExtractor-Compression-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let temporaryTar = temporaryDirectory.appendingPathComponent("payload.tar")
+
+        try await createArchive(type: "tar", inputs: request.inputs, output: temporaryTar, level: request.level, password: nil) {
+            progress($0 * 0.7)
+        }
+        if Task.isCancelled { throw ArchiveEngineError.cancelled }
+        let wrapperType: String
+        switch request.format {
+        case .tarGzip: wrapperType = "gzip"
+        case .tarBzip2: wrapperType = "bzip2"
+        case .tarXz: wrapperType = "xz"
+        default: preconditionFailure("Tar wrapper expected")
+        }
+        try await createArchive(type: wrapperType, inputs: [temporaryTar], output: request.outputURL, level: request.level, password: nil) {
+            progress(0.7 + $0 * 0.3)
         }
     }
 

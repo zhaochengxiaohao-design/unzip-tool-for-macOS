@@ -17,6 +17,10 @@ do {
     try check(ArchiveUtilities.outputBaseName(for: URL(fileURLWithPath: "/tmp/backup.7z.001")) == "backup", "7Z 分卷命名")
     try check(ArchiveUtilities.outputBaseName(for: URL(fileURLWithPath: "/tmp/movie.part03.rar")) == "movie", "RAR 分卷命名")
     try check(ArchiveUtilities.outputBaseName(for: URL(fileURLWithPath: "/tmp/资料.zip")) == "资料", "中文文件名")
+    try check(ArchiveUtilities.archiveFileName(baseName: "资料.zip", format: .tarGzip) == "资料.tar.gz", "压缩格式扩展名替换")
+    try check(ArchiveUtilities.archiveFileName(baseName: "backup", format: .sevenZip) == "backup.7z", "压缩格式扩展名追加")
+    try check(ArchiveUtilities.sanitizedArchiveName("../escape") == nil, "压缩包名称路径拦截")
+    try check(CompressionFormat.gzip.requiresSingleRegularFile && !CompressionFormat.tarGzip.requiresSingleRegularFile, "单文件压缩格式约束")
 
     let listing = """
     Path = sample.zip
