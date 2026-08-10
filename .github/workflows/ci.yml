@@ -4,23 +4,35 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Validate packaging script syntax
+        run: zsh -n scripts/build_app.sh
 
       - name: Validate localization files
         run: find Packaging/Localization -name '*.strings' -exec plutil -lint {} \;
 
       - name: Download official 7-Zip 26.02
         run: |
+          set -euo pipefail
           curl -fsSL https://github.com/ip7z/7zip/releases/download/26.02/7z2602-mac.tar.xz -o "$RUNNER_TEMP/7zip.tar.xz"
+          echo "1cf6760579502f87e591ff5c73a005ec50b3e4d6f507e8b038382d563c3175b9  $RUNNER_TEMP/7zip.tar.xz" | shasum -a 256 -c -
           tar -xJf "$RUNNER_TEMP/7zip.tar.xz" -C "$RUNNER_TEMP"
+          echo "9c56cf3379a0d8544e9244958b96fdc7c17f9ce70f5a160eb2b41f5f3df96d8c  $RUNNER_TEMP/7zz" | shasum -a 256 -c -
+          echo "1790374e5352329cedb46ee3808930a88e9ca2f08b82b10fcf5cf605d2c301b1  $RUNNER_TEMP/License.txt" | shasum -a 256 -c -
           chmod +x "$RUNNER_TEMP/7zz"
 
       - name: Build
-        run: swift build
+        run: swift build -Xswiftc -warnings-as-errors
 
       - name: Run core checks
         run: swift run CoreChecks
@@ -29,3 +41,14 @@ jobs:
         env:
           SEVENZIP_BIN: ${{ runner.temp }}/7zz
         run: swift run EngineChecks
+
+      - name: Build and verify distributable from a fresh checkout
+        run: |
+          mkdir -p work/7zip-26.02
+          install -m 755 "$RUNNER_TEMP/7zz" work/7zip-26.02/7zz
+          install -m 644 "$RUNNER_TEMP/License.txt" work/7zip-26.02/License.txt
+          ./scripts/build_app.sh
+          codesign --verify --deep --strict "outputs/万能解压.app"
+          test -s outputs/Universal-Extractor-v1.5.0-macOS-arm64.zip
+          test -s outputs/Universal-Extractor-v1.5.0-Source.zip
+          test -s outputs/SHA256SUMS.txt

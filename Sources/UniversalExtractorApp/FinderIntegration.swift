@@ -32,6 +32,14 @@ final class OpenFileRouter: ObservableObject {
 
     func trackQuietJobs(_ ids: [UUID], quietly: Bool) {
         guard quietly else { return }
+        guard !ids.isEmpty else {
+            guard !terminationScheduled else { return }
+            terminationScheduled = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                NSApp.terminate(nil)
+            }
+            return
+        }
         quietJobIDs.formUnion(ids)
         enforceQuietPresentation()
     }
@@ -46,9 +54,11 @@ final class OpenFileRouter: ObservableObject {
         }
     }
 
-    func revealForInteraction() {
-        quietJobIDs.removeAll()
-        terminationScheduled = false
+    func revealForInteraction(keepQuietJobTracking: Bool = false) {
+        if !keepQuietJobTracking {
+            quietJobIDs.removeAll()
+            terminationScheduled = false
+        }
         NSApp.setActivationPolicy(.regular)
         NSApp.windows.forEach { $0.makeKeyAndOrderFront(nil) }
         NSApp.activate(ignoringOtherApps: true)

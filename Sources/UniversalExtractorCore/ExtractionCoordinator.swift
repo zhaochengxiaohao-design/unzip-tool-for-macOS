@@ -21,6 +21,8 @@ public final class ExtractionCoordinator: ObservableObject {
     @Published public var passwordRequest: PasswordRequest?
     @Published public var collisionRequest: CollisionRequest?
     @Published public var presentedError: String?
+    /// 每次顺序队列完全空闲后递增，供 Finder 静默入口可靠结束应用生命周期。
+    @Published public private(set) var queueCompletionGeneration = 0
 
     private let engine: ArchiveEngine
     private let fileManager: FileManager
@@ -28,6 +30,9 @@ public final class ExtractionCoordinator: ObservableObject {
     private var currentJobID: UUID?
     private var passwordContinuation: CheckedContinuation<String?, Never>?
     private var collisionContinuation: CheckedContinuation<CollisionPolicy, Never>?
+    private var cancellationTokens: [UUID: ExtractionCancellationToken] = [:]
+    private var runtimeSpaceFailures: [UUID: Int64] = [:]
+    private var runtimeCapacityFailures: Set<UUID> = []
 
     public init(engine: ArchiveEngine = SevenZipEngine(), fileManager: FileManager = .default) {
         self.engine = engine
@@ -41,11 +46,16 @@ public final class ExtractionCoordinator: ObservableObject {
         }
     }
 
-    deinit { worker?.cancel() }
+    deinit {
+        worker?.cancel()
+        cancellationTokens.values.forEach { $0.cancel() }
+        engine.cancel()
+    }
 
     public func setDestination(_ url: URL) {
-        destinationURL = url
-        UserDefaults.standard.set(url.path, forKey: "lastDestination")
+        let resolved = url.resolvingSymlinksInPath().standardizedFileURL
+        destinationURL = resolved
+        UserDefaults.standard.set(resolved.path, forKey: "lastDestination")
         startWorkerIfNeeded()
     }
 
@@ -83,7 +93,8 @@ public final class ExtractionCoordinator: ObservableObject {
                 guard !seen.contains(path) else { continue }
                 var isDirectory: ObjCBool = false
                 guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue else { continue }
-                let job = ArchiveJob(sourceURL: url, outputMode: outputMode, destinationURL: destination(url))
+                let resolvedDestination = destination(url).resolvingSymlinksInPath().standardizedFileURL
+                let job = ArchiveJob(sourceURL: url, outputMode: outputMode, destinationURL: resolvedDestination)
                 jobs.append(job)
                 addedIDs.append(job.id)
                 seen.insert(path)
@@ -102,6 +113,7 @@ public final class ExtractionCoordinator: ObservableObject {
     public func cancel(jobID: UUID) {
         guard let index = jobs.firstIndex(where: { $0.id == jobID }) else { return }
         if currentJobID == jobID {
+            cancellationTokens[jobID]?.cancel()
             engine.cancel()
             passwordContinuation?.resume(returning: nil)
             passwordContinuation = nil
@@ -135,7 +147,13 @@ public final class ExtractionCoordinator: ObservableObject {
             guard let self else { return }
             await self.processQueue()
             self.worker = nil
-            if self.jobs.contains(where: { $0.state == .queued }) { self.startWorkerIfNeeded() }
+            if self.jobs.contains(where: { $0.state == .queued }) {
+                self.startWorkerIfNeeded()
+            } else {
+                self.queueCompletionGeneration = self.queueCompletionGeneration == Int.max
+                    ? 0
+                    : self.queueCompletionGeneration + 1
+            }
         }
     }
 
@@ -150,19 +168,66 @@ public final class ExtractionCoordinator: ObservableObject {
         }
     }
 
-    private func process(jobID: UUID, destination: URL) async {
+    private func process(jobID: UUID, destination requestedDestination: URL) async {
         guard let job = job(jobID) else { return }
-        let staging = destination.appendingPathComponent(".万能解压-临时-\(jobID.uuidString)", isDirectory: true)
+        let cancellationToken = ExtractionCancellationToken()
+        cancellationTokens[jobID] = cancellationToken
+        let destination: URL
+        let workspace: SecureExtractionWorkspace
+        do {
+            let fileManager = self.fileManager
+            let prepared = try await Task.detached(priority: .userInitiated) {
+                try cancellationToken.check()
+                let trustedDestination = try SecurePOSIXFileSystem.trustedCanonicalDirectory(
+                    requestedDestination
+                )
+                let workspace = try SecureExtractionWorkspace(
+                    parent: trustedDestination,
+                    jobID: jobID,
+                    fileManager: fileManager
+                )
+                return (trustedDestination, workspace)
+            }.value
+            destination = prepared.0
+            workspace = prepared.1
+        } catch {
+            cancellationTokens.removeValue(forKey: jobID)
+            if error as? ArchiveEngineError == .cancelled {
+                update(jobID, state: .cancelled, progress: 0, detail: AppLocalization.text("用户已取消"))
+            } else {
+                update(jobID, state: .failed, progress: 0, detail: error.localizedDescription)
+            }
+            return
+        }
+        let staging = workspace.stagingURL
         var password: String?
+        var terminalState: JobState = .failed
+        var terminalProgress = 0.0
+        var terminalDetail = AppLocalization.text("未知错误")
+        var preserveWorkspaceForRecovery = false
 
         do {
-            try fileManager.createDirectory(at: staging, withIntermediateDirectories: false)
+            try cancellationToken.check()
             update(jobID, state: .inspecting, progress: 0, detail: AppLocalization.text("正在根据文件内容识别格式…"))
+            let sourceURL = job.sourceURL
+            let preparedSource = try await Task.detached(priority: .userInitiated) {
+                try cancellationToken.check()
+                let originalQuarantine = try QuarantinePropagation.metadata(at: sourceURL)
+                let archive = try workspace.snapshotArchive(sourceURL, cancellationToken: cancellationToken)
+                let snapshotQuarantine = try QuarantinePropagation.metadata(at: archive)
+                try cancellationToken.check()
+                return PreparedExtractionSource(
+                    archiveURL: archive,
+                    quarantineMetadata: originalQuarantine ?? snapshotQuarantine
+                )
+            }.value
+            let archive = preparedSource.archiveURL
 
             var inspection: ArchiveInspection
             while true {
                 do {
-                    inspection = try await engine.inspect(job.sourceURL, password: password)
+                    inspection = try await engine.inspect(archive, password: password)
+                    try cancellationToken.check()
                     if inspection.encrypted && password == nil {
                         password = await requestPassword(jobID: jobID, archiveName: job.displayName, message: AppLocalization.text("此压缩包已加密，请输入密码。"))
                         guard password != nil else { throw ArchiveEngineError.cancelled }
@@ -178,16 +243,25 @@ public final class ExtractionCoordinator: ObservableObject {
                 }
             }
 
-            try ArchiveSecurity.validateInspection(inspection)
-            try ArchiveSecurity.validateDiskSpace(for: inspection, at: destination)
+            try await Task.detached(priority: .userInitiated) {
+                try cancellationToken.check()
+                try ArchiveSecurity.validateInspection(
+                    inspection,
+                    shouldCancel: { cancellationToken.isCancelled || Task.isCancelled }
+                )
+                try ArchiveSecurity.validateDiskSpace(for: inspection, at: destination)
+                try cancellationToken.check()
+            }.value
             updateFormat(jobID, inspection.format.isEmpty ? AppLocalization.text("自动识别") : inspection.format)
 
             while true {
                 do {
+                    try cancellationToken.check()
                     update(jobID, state: .testing, progress: 0, detail: AppLocalization.text("正在校验压缩包完整性…"))
-                    try await engine.test(job.sourceURL, password: password) { [weak self] progress in
+                    try await engine.test(archive, password: password) { [weak self] progress in
                         Task { @MainActor in self?.updateProgress(jobID, progress: progress * 0.15) }
                     }
+                    try cancellationToken.check()
                     break
                 } catch ArchiveEngineError.passwordRequired, ArchiveEngineError.wrongPassword {
                     password = await requestPassword(jobID: jobID, archiveName: job.displayName, message: AppLocalization.text("密码错误，请重新输入。"))
@@ -197,45 +271,113 @@ public final class ExtractionCoordinator: ObservableObject {
 
             update(jobID, state: .extracting, progress: 0.15, detail: AppLocalization.text("正在解压…"))
             try await extractLayers(
-                archive: job.sourceURL,
+                archive: archive,
                 inspection: inspection,
                 to: staging,
                 password: password,
                 jobID: jobID,
                 depth: 0,
                 progressStart: 0.15,
-                progressEnd: 0.95
+                progressEnd: 0.95,
+                workspace: workspace,
+                cancellationToken: cancellationToken
             )
-            try ArchiveSecurity.validateExtractedTree(at: staging, fileManager: fileManager)
+            let fileManager = self.fileManager
+            let allowSymbolicLinks = job.outputMode == .separateFolder
+            try await Task.detached(priority: .userInitiated) {
+                try cancellationToken.check()
+                try ArchiveSecurity.validateExtractedTree(
+                    at: staging,
+                    allowSymbolicLinks: allowSymbolicLinks,
+                    fileManager: fileManager,
+                    shouldCancel: { cancellationToken.isCancelled || Task.isCancelled }
+                )
+                try cancellationToken.check()
+                try QuarantinePropagation.apply(
+                    preparedSource.quarantineMetadata,
+                    to: staging,
+                    fileManager: fileManager,
+                    shouldCancel: { cancellationToken.isCancelled || Task.isCancelled }
+                )
+                try cancellationToken.check()
+            }.value
             update(jobID, state: .finalizing, progress: 0.96, detail: AppLocalization.text("正在整理输出文件…"))
 
             let finalURL: URL
             switch job.outputMode {
             case .separateFolder:
                 let desired = destination.appendingPathComponent(ArchiveUtilities.outputBaseName(for: job.sourceURL), isDirectory: true)
-                finalURL = ArchiveUtilities.uniqueURL(for: desired, fileManager: fileManager)
-                try fileManager.moveItem(at: staging, to: finalURL)
+                finalURL = try await Task.detached(priority: .userInitiated) {
+                    try cancellationToken.check()
+                    return try SecurePOSIXFileSystem.moveToUniqueDestination(
+                        from: staging,
+                        desired: desired,
+                        shouldCancel: { cancellationToken.isCancelled || Task.isCancelled }
+                    )
+                }.value
             case .directlyIntoDestination:
                 var policy: CollisionPolicy = .keepBoth
-                if try FileMerger.hasCollisions(from: staging, into: destination, fileManager: fileManager) {
+                let hasCollisions = try await Task.detached(priority: .userInitiated) {
+                    try cancellationToken.check()
+                    return try FileMerger.hasCollisions(
+                        from: staging,
+                        into: destination,
+                        fileManager: fileManager,
+                        shouldCancel: { cancellationToken.isCancelled || Task.isCancelled }
+                    )
+                }.value
+                if hasCollisions {
                     policy = await requestCollisionChoice(jobID: jobID, archiveName: job.displayName)
                     guard policy != .cancel else { throw ArchiveEngineError.cancelled }
                 }
-                try FileMerger.merge(from: staging, into: destination, policy: policy, fileManager: fileManager)
-                try? fileManager.removeItem(at: staging)
+                try cancellationToken.check()
+                try await Task.detached(priority: .userInitiated) {
+                    try FileMerger.merge(
+                        from: staging,
+                        into: destination,
+                        policy: policy,
+                        fileManager: fileManager,
+                        shouldCancel: { cancellationToken.isCancelled || Task.isCancelled }
+                    )
+                }.value
                 finalURL = destination
             }
 
             updateOutput(jobID, outputURL: finalURL)
-            update(jobID, state: .completed, progress: 1, detail: AppLocalization.text("解压完成"))
+            terminalState = .completed
+            terminalProgress = 1
+            terminalDetail = AppLocalization.text("解压完成")
         } catch ArchiveEngineError.cancelled {
-            try? fileManager.removeItem(at: staging)
-            update(jobID, state: .cancelled, progress: 0, detail: AppLocalization.text("用户已取消"))
+            terminalState = .cancelled
+            terminalProgress = 0
+            terminalDetail = AppLocalization.text("用户已取消")
         } catch {
-            try? fileManager.removeItem(at: staging)
-            update(jobID, state: .failed, progress: 0, detail: error.localizedDescription)
+            terminalState = .failed
+            terminalProgress = 0
+            let phase = jobs.first(where: { $0.id == jobID })?.state.label ?? AppLocalization.text("失败")
+            terminalDetail = "\(phase): \(error.localizedDescription)"
+            if let supportError = error as? ExtractionSecuritySupportError,
+               case .rollbackFailed = supportError {
+                preserveWorkspaceForRecovery = true
+            }
         }
+
         password = nil
+        if !preserveWorkspaceForRecovery {
+            do {
+                try await Task.detached(priority: .utility) { try workspace.remove() }.value
+            } catch {
+                if terminalState == .completed {
+                    terminalState = .failed
+                    terminalProgress = 0
+                    terminalDetail = error.localizedDescription
+                }
+            }
+        }
+        cancellationTokens.removeValue(forKey: jobID)
+        runtimeSpaceFailures.removeValue(forKey: jobID)
+        runtimeCapacityFailures.remove(jobID)
+        update(jobID, state: terminalState, progress: terminalProgress, detail: terminalDetail)
     }
 
     private func extractLayers(
@@ -246,21 +388,51 @@ public final class ExtractionCoordinator: ObservableObject {
         jobID: UUID,
         depth: Int,
         progressStart: Double,
-        progressEnd: Double
+        progressEnd: Double,
+        workspace: SecureExtractionWorkspace,
+        cancellationToken: ExtractionCancellationToken
     ) async throws {
+        try await Task.detached(priority: .userInitiated) {
+            try cancellationToken.check()
+            try ArchiveSecurity.validateDiskSpace(for: inspection, at: workspace.rootURL)
+        }.value
         let isWrapper = Self.singleFileCompressionFormats.contains(inspection.format.lowercased())
         let layerEnd = isWrapper && depth < 3
             ? progressStart + (progressEnd - progressStart) * 0.45
             : progressEnd
 
-        try await engine.extract(archive, to: output, password: password) { [weak self] progress in
-            Task { @MainActor in
-                self?.updateProgress(jobID, progress: progressStart + progress * (layerEnd - progressStart))
+        let capacityMonitor = startCapacityMonitor(at: workspace.rootURL, jobID: jobID)
+        do {
+            try await engine.extract(archive, to: output, password: password) { [weak self] progress in
+                Task { @MainActor in
+                    self?.updateProgress(jobID, progress: progressStart + progress * (layerEnd - progressStart))
+                }
             }
+            capacityMonitor.cancel()
+            await capacityMonitor.value
+            if let diskError = consumeRuntimeCapacityError(jobID) { throw diskError }
+        } catch {
+            capacityMonitor.cancel()
+            await capacityMonitor.value
+            if let diskError = consumeRuntimeCapacityError(jobID) { throw diskError }
+            throw error
         }
+        try cancellationToken.check()
 
-        guard isWrapper, depth < 3,
-              let nestedArchive = try soleRegularFile(in: output) else { return }
+        guard isWrapper, depth < 3 else { return }
+        let fileManager = self.fileManager
+        let nestedArchiveCandidate: URL? = try await Task.detached(priority: .userInitiated, operation: { () throws -> URL? in
+            try cancellationToken.check()
+            let items = try fileManager.contentsOfDirectory(
+                at: output,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )
+            guard items.count == 1, let item = items.first,
+                  try SecurePOSIXFileSystem.information(at: item).kind == .regular else { return nil }
+            return item
+        }).value
+        guard let nestedArchive = nestedArchiveCandidate else { return }
 
         let nestedInspection: ArchiveInspection
         do {
@@ -268,11 +440,20 @@ public final class ExtractionCoordinator: ObservableObject {
         } catch ArchiveEngineError.unsupported {
             return
         }
-        try ArchiveSecurity.validateInspection(nestedInspection)
+        try await Task.detached(priority: .userInitiated) {
+            try cancellationToken.check()
+            try ArchiveSecurity.validateInspection(
+                nestedInspection,
+                shouldCancel: { cancellationToken.isCancelled || Task.isCancelled }
+            )
+            try ArchiveSecurity.validateDiskSpace(for: nestedInspection, at: workspace.rootURL)
+            try cancellationToken.check()
+        }.value
 
-        let nextOutput = output.deletingLastPathComponent()
-            .appendingPathComponent("\(output.lastPathComponent)-层-\(depth + 1)", isDirectory: true)
-        try fileManager.createDirectory(at: nextOutput, withIntermediateDirectories: false)
+        let nextOutput = try await Task.detached(priority: .userInitiated) {
+            try cancellationToken.check()
+            return try workspace.makeLayerDirectory(depth: depth + 1)
+        }.value
         do {
             update(jobID, state: .extracting, progress: layerEnd, detail: AppLocalization.format("正在展开组合压缩层 %d…", depth + 2))
             try await extractLayers(
@@ -283,31 +464,66 @@ public final class ExtractionCoordinator: ObservableObject {
                 jobID: jobID,
                 depth: depth + 1,
                 progressStart: layerEnd,
-                progressEnd: progressEnd
+                progressEnd: progressEnd,
+                workspace: workspace,
+                cancellationToken: cancellationToken
             )
-            try fileManager.removeItem(at: output)
-            try fileManager.moveItem(at: nextOutput, to: output)
+            try await Task.detached(priority: .userInitiated) {
+                try cancellationToken.check()
+                try fileManager.removeItem(at: output)
+                try SecurePOSIXFileSystem.moveNoReplace(from: nextOutput, to: output)
+            }.value
         } catch {
-            try? fileManager.removeItem(at: nextOutput)
+            _ = try? await Task.detached(priority: .utility) {
+                if try SecurePOSIXFileSystem.informationIfPresent(at: nextOutput) != nil {
+                    try fileManager.removeItem(at: nextOutput)
+                }
+            }.value
             throw error
         }
-    }
-
-    private func soleRegularFile(in directory: URL) throws -> URL? {
-        let items = try fileManager.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
-            options: [.skipsHiddenFiles]
-        )
-        guard items.count == 1, let item = items.first else { return nil }
-        let values = try item.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-        guard values.isRegularFile == true, values.isSymbolicLink != true else { return nil }
-        return item
     }
 
     private static let singleFileCompressionFormats: Set<String> = [
         "gzip", "bzip2", "xz", "lzma", "z", "zstd"
     ]
+
+    private func startCapacityMonitor(at destination: URL, jobID: UUID) -> Task<Void, Never> {
+        Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: 200_000_000)
+                } catch {
+                    return
+                }
+                guard let self, self.currentJobID == jobID else { return }
+                do {
+                    let available = try ArchiveSecurity.availableCapacity(at: destination)
+                    if available < ArchiveSecurity.safetyReserve {
+                        self.runtimeSpaceFailures[jobID] = available
+                        self.engine.cancel()
+                        return
+                    }
+                } catch {
+                    self.runtimeCapacityFailures.insert(jobID)
+                    self.engine.cancel()
+                    return
+                }
+            }
+        }
+    }
+
+    private func consumeRuntimeCapacityError(_ jobID: UUID) -> Error? {
+        if let available = runtimeSpaceFailures.removeValue(forKey: jobID) {
+            return ArchiveSecurityError.insufficientSpace(
+                required: ArchiveSecurity.safetyReserve,
+                available: available
+            )
+        }
+        if runtimeCapacityFailures.remove(jobID) != nil {
+            return ExtractionSecuritySupportError.capacityUnavailable
+        }
+        return nil
+    }
 
     private func requestPassword(jobID: UUID, archiveName: String, message: String) async -> String? {
         update(jobID, state: .waitingForPassword, progress: 0, detail: message)

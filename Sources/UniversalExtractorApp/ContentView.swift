@@ -88,8 +88,15 @@ struct ContentView: View {
         .onReceive(coordinator.$jobs) { jobs in
             openFileRouter.finishQuietlyIfPossible(jobs: jobs)
         }
+        .onReceive(coordinator.$queueCompletionGeneration) { _ in
+            // @Published 数组的逐项变更可能在极短任务中与 SwiftUI 首次订阅交错；
+            // 队列空闲事件提供第二个、确定性的静默退出触发点。
+            openFileRouter.finishQuietlyIfPossible(jobs: coordinator.jobs)
+        }
         .onReceive(coordinator.$passwordRequest) { request in
-            if request != nil { openFileRouter.revealForInteraction() }
+            if request != nil {
+                openFileRouter.revealForInteraction(keepQuietJobTracking: true)
+            }
         }
     }
 
@@ -426,6 +433,7 @@ private struct CollisionPrompt: View {
 
 private struct AboutView: View {
     @Environment(\.dismiss) private var dismiss
+    @State private var licenseDocument: LicenseDocument?
 
     var body: some View {
         VStack(spacing: 14) {
@@ -439,11 +447,61 @@ private struct AboutView: View {
             Text("本应用使用 7-Zip 26.02 命令行组件。7-Zip 按 GNU LGPL 许可发布，部分代码受 unRAR 许可约束。")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
-            Link("访问 7-Zip 官方网站", destination: URL(string: "https://www.7-zip.org/")!)
+            HStack {
+                Link("项目主页与源代码", destination: URL(string: "https://github.com/zhaochengxiaohao-design/unzip-tool-for-macOS")!)
+                Link("访问 7-Zip 官方网站", destination: URL(string: "https://www.7-zip.org/")!)
+            }
+            HStack {
+                resourceButton("查看项目许可证", resource: "Project-License")
+                resourceButton("查看 7-Zip 许可证", resource: "7-Zip-License")
+                resourceButton("查看第三方声明", resource: "ThirdPartyNotices")
+            }
             Button("完成") { dismiss() }.keyboardShortcut(.defaultAction)
         }
         .padding(30)
-        .frame(width: 440)
+        .frame(width: 560)
+        .sheet(item: $licenseDocument) { document in
+            LicenseDocumentView(document: document)
+        }
+    }
+
+    private func resourceButton(_ title: LocalizedStringKey, resource: String) -> some View {
+        Button(title) {
+            guard let url = Bundle.main.url(forResource: resource, withExtension: "txt"),
+                  let contents = try? String(contentsOf: url, encoding: .utf8) else { return }
+            licenseDocument = LicenseDocument(title: title, contents: contents)
+        }
+    }
+}
+
+private struct LicenseDocument: Identifiable {
+    let id = UUID()
+    let title: LocalizedStringKey
+    let contents: String
+}
+
+private struct LicenseDocumentView: View {
+    @Environment(\.dismiss) private var dismiss
+    let document: LicenseDocument
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(document.title).font(.title2.bold())
+            ScrollView {
+                Text(document.contents)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(12)
+            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+            HStack {
+                Spacer()
+                Button("完成") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 700, height: 520)
     }
 }
 

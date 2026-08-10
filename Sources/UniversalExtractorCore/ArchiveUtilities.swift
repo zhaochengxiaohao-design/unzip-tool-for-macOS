@@ -27,13 +27,12 @@ public enum ArchiveUtilities {
 
     public static func normalizedFirstVolume(for url: URL, fileManager: FileManager = .default) throws -> URL {
         let name = url.lastPathComponent
-        let lower = name.lowercased()
         let directory = url.deletingLastPathComponent()
 
-        if let match = capture(in: lower, pattern: #"^(.*\.part)(\d+)(\.rar)$"#),
+        if let match = capture(in: name, pattern: #"^(.*\.part)(\d+)(\.rar)$"#),
            let number = Int(match[2]), number > 1 {
             let width = match[2].count
-            let candidateName = String(name.prefix(match[1].count)) + String(format: "%0*d", width, 1) + String(name.suffix(match[3].count))
+            let candidateName = match[1] + String(format: "%0*d", width, 1) + match[3]
             let candidate = directory.appendingPathComponent(candidateName)
             guard fileManager.fileExists(atPath: candidate.path) else {
                 throw ArchiveEngineError.missingVolume(AppLocalization.format("请先选择第 1 卷 %@", candidateName))
@@ -41,9 +40,37 @@ public enum ArchiveUtilities {
             return candidate
         }
 
-        if let match = capture(in: lower, pattern: #"^(.*\.(?:7z|zip)\.)(\d{3,})$"#),
+        if let match = capture(in: name, pattern: #"^(.*\.(?:7z|zip)\.)(\d{3,})$"#),
            let number = Int(match[2]), number > 1 {
-            let candidateName = String(name.prefix(match[1].count)) + String(repeating: "0", count: match[2].count - 1) + "1"
+            let candidateName = match[1] + String(repeating: "0", count: match[2].count - 1) + "1"
+            let candidate = directory.appendingPathComponent(candidateName)
+            guard fileManager.fileExists(atPath: candidate.path) else {
+                throw ArchiveEngineError.missingVolume(AppLocalization.format("请先选择第 1 卷 %@", candidateName))
+            }
+            return candidate
+        }
+
+        if let match = capture(in: name, pattern: #"^(.*\.)(\d{3,})$"#),
+           let number = Int(match[2]), number > 1 {
+            let candidateName = match[1] + String(repeating: "0", count: match[2].count - 1) + "1"
+            let candidate = directory.appendingPathComponent(candidateName)
+            guard fileManager.fileExists(atPath: candidate.path) else {
+                throw ArchiveEngineError.missingVolume(AppLocalization.format("请先选择第 1 卷 %@", candidateName))
+            }
+            return candidate
+        }
+
+        if let match = capture(in: name, pattern: #"^(.*)\.r\d{2,}$"#) {
+            let candidateName = match[1] + ".rar"
+            let candidate = directory.appendingPathComponent(candidateName)
+            guard fileManager.fileExists(atPath: candidate.path) else {
+                throw ArchiveEngineError.missingVolume(AppLocalization.format("请先选择第 1 卷 %@", candidateName))
+            }
+            return candidate
+        }
+
+        if let match = capture(in: name, pattern: #"^(.*)\.z\d{2,}$"#) {
+            let candidateName = match[1] + ".zip"
             let candidate = directory.appendingPathComponent(candidateName)
             guard fileManager.fileExists(atPath: candidate.path) else {
                 throw ArchiveEngineError.missingVolume(AppLocalization.format("请先选择第 1 卷 %@", candidateName))

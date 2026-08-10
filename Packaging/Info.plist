@@ -19,7 +19,7 @@
     <key>CFBundleShortVersionString</key>
     <string>1.5.0</string>
     <key>CFBundleVersion</key>
-    <string>6</string>
+    <string>7</string>
     <key>CFBundleLocalizations</key>
     <array>
         <string>en</string>
@@ -42,6 +42,23 @@
                 <string>rar</string>
                 <string>r00</string>
                 <string>r01</string>
+                <string>r02</string>
+                <string>r03</string>
+                <string>r04</string>
+                <string>r05</string>
+                <string>r06</string>
+                <string>r07</string>
+                <string>r08</string>
+                <string>r09</string>
+                <string>z01</string>
+                <string>z02</string>
+                <string>z03</string>
+                <string>z04</string>
+                <string>z05</string>
+                <string>z06</string>
+                <string>z07</string>
+                <string>z08</string>
+                <string>z09</string>
                 <string>tar</string>
                 <string>tgz</string>
                 <string>tbz</string>
@@ -56,6 +73,14 @@
                 <string>z</string>
                 <string>zst</string>
                 <string>001</string>
+                <string>002</string>
+                <string>003</string>
+                <string>004</string>
+                <string>005</string>
+                <string>006</string>
+                <string>007</string>
+                <string>008</string>
+                <string>009</string>
                 <string>cab</string>
             </array>
         </dict>
@@ -84,6 +109,8 @@
     <array><string>arm64</string></array>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.utilities</string>
+    <key>LSFileQuarantineEnabled</key>
+    <true/>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSHumanReadableCopyright</key>

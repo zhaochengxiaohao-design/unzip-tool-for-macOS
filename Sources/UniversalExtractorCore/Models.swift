@@ -135,6 +135,20 @@ public struct CompressionRequest: Sendable {
     }
 }
 
+public enum ArchivePasswordPolicy {
+    public static let maximumUnicodeScalarCount = 256
+    public static let maximumUTF8ByteCount = 1_024
+
+    public static func isValid(_ password: String) -> Bool {
+        guard !password.isEmpty,
+              password.unicodeScalars.count <= maximumUnicodeScalarCount,
+              password.utf8.count <= maximumUTF8ByteCount else { return false }
+        return password.unicodeScalars.allSatisfy {
+            !CharacterSet.controlCharacters.contains($0)
+        }
+    }
+}
+
 public enum CompressionState: String, Sendable {
     case idle
     case compressing
@@ -150,6 +164,7 @@ public enum CompressionError: LocalizedError, Equatable, Sendable {
     case singleRegularFileRequired
     case passwordUnsupported
     case zipPasswordRequiresASCII
+    case invalidPassword
     case outputInsideInput
 
     public var errorDescription: String? {
@@ -160,6 +175,7 @@ public enum CompressionError: LocalizedError, Equatable, Sendable {
         case .singleRegularFileRequired: return AppLocalization.text("GZIP、BZIP2 和 XZ 只能压缩一个普通文件；如需压缩多个项目，请选择 TAR.GZ、TAR.BZ2 或 TAR.XZ。")
         case .passwordUnsupported: return AppLocalization.text("所选格式不支持密码保护。")
         case .zipPasswordRequiresASCII: return AppLocalization.text("受 ZIP 格式兼容性限制，ZIP 密码仅支持英文、数字和常用半角符号；如需使用中文密码，请选择 7Z。")
+        case .invalidPassword: return AppLocalization.text("密码不能为空、包含换行或其他控制字符，且不能超过 256 个字符。")
         case .outputInsideInput: return AppLocalization.text("压缩包不能保存到正在压缩的文件夹内部，请选择其上级目录或其他目录。")
         }
     }
@@ -194,12 +210,29 @@ public struct ArchiveEntry: Equatable, Sendable {
     public var size: Int64?
     public var attributes: String?
     public var symbolicLinkTarget: String?
+    public var mode: String?
+    public var hardLinkTarget: String?
+    public var deviceMajor: Int?
+    public var deviceMinor: Int?
 
-    public init(path: String, size: Int64?, attributes: String?, symbolicLinkTarget: String?) {
+    public init(
+        path: String,
+        size: Int64?,
+        attributes: String?,
+        symbolicLinkTarget: String?,
+        mode: String? = nil,
+        hardLinkTarget: String? = nil,
+        deviceMajor: Int? = nil,
+        deviceMinor: Int? = nil
+    ) {
         self.path = path
         self.size = size
         self.attributes = attributes
         self.symbolicLinkTarget = symbolicLinkTarget
+        self.mode = mode
+        self.hardLinkTarget = hardLinkTarget
+        self.deviceMajor = deviceMajor
+        self.deviceMinor = deviceMinor
     }
 }
 
@@ -209,13 +242,31 @@ public struct ArchiveInspection: Equatable, Sendable {
     public var totalUncompressedSize: Int64
     public var encrypted: Bool
     public var entries: [ArchiveEntry]
+    public var entryCount: Int
+    public var hasUnknownEntrySizes: Bool
+    public var uncompressedSizeOverflowed: Bool
+    public var listingIsAmbiguous: Bool
 
-    public init(format: String, physicalSize: Int64?, totalUncompressedSize: Int64, encrypted: Bool, entries: [ArchiveEntry]) {
+    public init(
+        format: String,
+        physicalSize: Int64?,
+        totalUncompressedSize: Int64,
+        encrypted: Bool,
+        entries: [ArchiveEntry],
+        entryCount: Int? = nil,
+        hasUnknownEntrySizes: Bool? = nil,
+        uncompressedSizeOverflowed: Bool = false,
+        listingIsAmbiguous: Bool = false
+    ) {
         self.format = format
         self.physicalSize = physicalSize
         self.totalUncompressedSize = totalUncompressedSize
         self.encrypted = encrypted
         self.entries = entries
+        self.entryCount = entryCount ?? entries.count
+        self.hasUnknownEntrySizes = hasUnknownEntrySizes ?? entries.contains(where: { $0.size == nil })
+        self.uncompressedSizeOverflowed = uncompressedSizeOverflowed
+        self.listingIsAmbiguous = listingIsAmbiguous
     }
 }
 
@@ -227,6 +278,7 @@ public enum ArchiveEngineError: LocalizedError, Equatable, Sendable {
     case corrupt(String)
     case missingVolume(String)
     case cancelled
+    case invalidPassword
     case processFailed(String)
 
     public var errorDescription: String? {
@@ -238,6 +290,7 @@ public enum ArchiveEngineError: LocalizedError, Equatable, Sendable {
         case .corrupt(let detail): return AppLocalization.format("压缩包已损坏或校验失败：%@", detail)
         case .missingVolume(let detail): return AppLocalization.format("分卷不完整：%@", detail)
         case .cancelled: return AppLocalization.text("任务已取消。")
+        case .invalidPassword: return AppLocalization.text("密码不能为空、包含换行或其他控制字符，且不能超过 256 个字符。")
         case .processFailed(let detail): return AppLocalization.format("解压引擎执行失败：%@", detail)
         }
     }
@@ -252,5 +305,6 @@ public protocol ArchiveEngine: AnyObject {
 
 public protocol ArchiveCompressionEngine: AnyObject {
     func compress(_ request: CompressionRequest, progress: @escaping @Sendable (Double) -> Void) async throws
+    func verify(_ request: CompressionRequest, progress: @escaping @Sendable (Double) -> Void) async throws
     func cancel()
 }
