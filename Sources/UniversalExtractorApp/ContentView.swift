@@ -82,7 +82,11 @@ struct ContentView: View {
             let pending = openFileRouter.takePending()
             if !pending.urls.isEmpty {
                 let ids = coordinator.addExternalFiles(pending.urls)
-                openFileRouter.trackQuietJobs(ids, quietly: pending.quietly)
+                openFileRouter.trackQuietJobs(
+                    ids,
+                    quietly: pending.quietly,
+                    jobsProvider: { coordinator.jobs }
+                )
             }
         }
         .onReceive(coordinator.$jobs) { jobs in

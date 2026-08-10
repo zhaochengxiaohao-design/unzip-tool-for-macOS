@@ -11,6 +11,7 @@ final class OpenFileRouter: ObservableObject {
     private var pendingQuietly = false
     private var quietJobIDs: Set<UUID> = []
     private var terminationScheduled = false
+    private var quietMonitorTask: Task<Void, Never>?
 
     private init() {}
 
@@ -30,7 +31,11 @@ final class OpenFileRouter: ObservableObject {
         return (pendingURLs, pendingQuietly)
     }
 
-    func trackQuietJobs(_ ids: [UUID], quietly: Bool) {
+    func trackQuietJobs(
+        _ ids: [UUID],
+        quietly: Bool,
+        jobsProvider: @escaping @MainActor () -> [ArchiveJob]
+    ) {
         guard quietly else { return }
         guard !ids.isEmpty else {
             guard !terminationScheduled else { return }
@@ -42,6 +47,15 @@ final class OpenFileRouter: ObservableObject {
         }
         quietJobIDs.formUnion(ids)
         enforceQuietPresentation()
+        quietMonitorTask?.cancel()
+        quietMonitorTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                self.finishQuietlyIfPossible(jobs: jobsProvider())
+                if self.terminationScheduled || self.quietJobIDs.isEmpty { return }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+        }
     }
 
     func finishQuietlyIfPossible(jobs: [ArchiveJob]) {
@@ -58,6 +72,8 @@ final class OpenFileRouter: ObservableObject {
         if !keepQuietJobTracking {
             quietJobIDs.removeAll()
             terminationScheduled = false
+            quietMonitorTask?.cancel()
+            quietMonitorTask = nil
         }
         NSApp.setActivationPolicy(.regular)
         NSApp.windows.forEach { $0.makeKeyAndOrderFront(nil) }
@@ -76,9 +92,14 @@ final class OpenFileRouter: ObservableObject {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let launchUptime = ProcessInfo.processInfo.systemUptime
+    /// 在 `applicationDidFinishLaunching` 前收到打开文件事件时先按非默认启动处理，失败关闭为静默。
+    private var launchedForExternalAction = true
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let isDefaultLaunch = (
+            notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? NSNumber
+        )?.boolValue ?? true
+        launchedForExternalAction = !isDefaultLaunch
         NSApp.servicesProvider = self
         NSUpdateDynamicServices()
     }
@@ -116,9 +137,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func route(_ urls: [URL]) {
-        let isLaunchInvocation = ProcessInfo.processInfo.systemUptime - launchUptime < 3
         let hasVisibleWindow = NSApp.windows.contains(where: { $0.isVisible })
-        let quietly = isLaunchInvocation || !hasVisibleWindow
+        let quietly = launchedForExternalAction || !hasVisibleWindow
         Task { @MainActor in
             OpenFileRouter.shared.enqueue(urls, quietly: quietly)
             if quietly { OpenFileRouter.shared.enforceQuietPresentation() }
