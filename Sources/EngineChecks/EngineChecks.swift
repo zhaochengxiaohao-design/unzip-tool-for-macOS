@@ -194,6 +194,40 @@ struct EngineChecks {
             try await engine.extract(encrypted, to: encryptedOutput, password: "安全密码") { _ in }
             print("✓ 加密 7Z 解压")
 
+            let nestedEncryptedZip = root.appendingPathComponent("nested-secret.zip")
+            try run(engineURL, ["a", "-tzip", "-pnested-password", nestedEncryptedZip.path, sourceFile.path])
+            let nestedEncryptedWrapper = root.appendingPathComponent("nested-secret.zip.gz")
+            try run(engineURL, ["a", "-tgzip", nestedEncryptedWrapper.path, nestedEncryptedZip.path])
+            let nestedPasswordDestination = root.appendingPathComponent("nested-password-destination", isDirectory: true)
+            try manager.createDirectory(at: nestedPasswordDestination, withIntermediateDirectories: true)
+            let nestedPasswordCoordinator = await MainActor.run {
+                ExtractionCoordinator(engine: SevenZipEngine(executableURL: engineURL))
+            }
+            await MainActor.run {
+                nestedPasswordCoordinator.setDestination(nestedPasswordDestination)
+                nestedPasswordCoordinator.addFiles([nestedEncryptedWrapper], outputMode: .separateFolder)
+            }
+            let firstNestedPrompt = try await waitForPasswordRequest(nestedPasswordCoordinator)
+            guard firstNestedPrompt.archiveName == nestedEncryptedZip.lastPathComponent else {
+                throw CheckError("组合压缩层密码提示未标明内层压缩包")
+            }
+            await MainActor.run { nestedPasswordCoordinator.submitPassword("错误密码") }
+            let retryNestedPrompt = try await waitForPasswordRequest(
+                nestedPasswordCoordinator,
+                excluding: firstNestedPrompt.id
+            )
+            guard retryNestedPrompt.message.contains("密码错误") else {
+                throw CheckError("组合压缩层错误密码未触发重试提示")
+            }
+            await MainActor.run { nestedPasswordCoordinator.submitPassword("nested-password") }
+            let nestedPasswordJob = try await waitForCompletion(nestedPasswordCoordinator)
+            guard nestedPasswordJob.state == .completed,
+                  let nestedPasswordOutput = nestedPasswordJob.outputURL,
+                  manager.fileExists(atPath: nestedPasswordOutput.appendingPathComponent("中文 文件.txt").path) else {
+                throw CheckError("组合压缩层输入正确密码后未完成解压：\(nestedPasswordJob.detail)")
+            }
+            print("✓ 组合压缩层密码提示、错误重试与解压")
+
             for compound in [tarGzip, tarBzip, tarXz] {
                 let compoundDestination = root.appendingPathComponent("compound-destination-\(UUID().uuidString)", isDirectory: true)
                 try manager.createDirectory(at: compoundDestination, withIntermediateDirectories: true)
@@ -677,6 +711,20 @@ struct EngineChecks {
             try await Task.sleep(nanoseconds: 50_000_000)
         }
         throw CheckError("等待队列完成超时")
+    }
+
+    private static func waitForPasswordRequest(
+        _ coordinator: ExtractionCoordinator,
+        excluding excludedID: UUID? = nil
+    ) async throws -> PasswordRequest {
+        for _ in 0..<600 {
+            if let request = await MainActor.run(body: { coordinator.passwordRequest }),
+               request.id != excludedID {
+                return request
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        throw CheckError("等待密码提示超时")
     }
 
     private static func waitForQueueIdleNotification(_ coordinator: ExtractionCoordinator) async throws {

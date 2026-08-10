@@ -223,25 +223,15 @@ public final class ExtractionCoordinator: ObservableObject {
             }.value
             let archive = preparedSource.archiveURL
 
-            var inspection: ArchiveInspection
-            while true {
-                do {
-                    inspection = try await engine.inspect(archive, password: password)
-                    try cancellationToken.check()
-                    if inspection.encrypted && password == nil {
-                        password = await requestPassword(jobID: jobID, archiveName: job.displayName, message: AppLocalization.text("此压缩包已加密，请输入密码。"))
-                        guard password != nil else { throw ArchiveEngineError.cancelled }
-                        continue
-                    }
-                    break
-                } catch ArchiveEngineError.passwordRequired {
-                    password = await requestPassword(jobID: jobID, archiveName: job.displayName, message: AppLocalization.text("此压缩包需要密码。"))
-                    guard password != nil else { throw ArchiveEngineError.cancelled }
-                } catch ArchiveEngineError.wrongPassword {
-                    password = await requestPassword(jobID: jobID, archiveName: job.displayName, message: AppLocalization.text("密码错误，请重新输入。"))
-                    guard password != nil else { throw ArchiveEngineError.cancelled }
-                }
-            }
+            let inspectionResult = try await inspectArchiveWithPasswordRetry(
+                archive,
+                archiveName: job.displayName,
+                initialPassword: password,
+                jobID: jobID,
+                cancellationToken: cancellationToken
+            )
+            let inspection = inspectionResult.inspection
+            password = inspectionResult.password
 
             try await Task.detached(priority: .userInitiated) {
                 try cancellationToken.check()
@@ -254,19 +244,15 @@ public final class ExtractionCoordinator: ObservableObject {
             }.value
             updateFormat(jobID, inspection.format.isEmpty ? AppLocalization.text("自动识别") : inspection.format)
 
-            while true {
-                do {
-                    try cancellationToken.check()
-                    update(jobID, state: .testing, progress: 0, detail: AppLocalization.text("正在校验压缩包完整性…"))
-                    try await engine.test(archive, password: password) { [weak self] progress in
-                        Task { @MainActor in self?.updateProgress(jobID, progress: progress * 0.15) }
-                    }
-                    try cancellationToken.check()
-                    break
-                } catch ArchiveEngineError.passwordRequired, ArchiveEngineError.wrongPassword {
-                    password = await requestPassword(jobID: jobID, archiveName: job.displayName, message: AppLocalization.text("密码错误，请重新输入。"))
-                    guard password != nil else { throw ArchiveEngineError.cancelled }
-                }
+            update(jobID, state: .testing, progress: 0, detail: AppLocalization.text("正在校验压缩包完整性…"))
+            password = try await testArchiveWithPasswordRetry(
+                archive,
+                archiveName: job.displayName,
+                initialPassword: password,
+                jobID: jobID,
+                cancellationToken: cancellationToken
+            ) { [weak self] progress in
+                Task { @MainActor in self?.updateProgress(jobID, progress: progress * 0.15) }
             }
 
             update(jobID, state: .extracting, progress: 0.15, detail: AppLocalization.text("正在解压…"))
@@ -434,12 +420,19 @@ public final class ExtractionCoordinator: ObservableObject {
         }).value
         guard let nestedArchive = nestedArchiveCandidate else { return }
 
-        let nestedInspection: ArchiveInspection
+        let nestedInspectionResult: (inspection: ArchiveInspection, password: String?)
         do {
-            nestedInspection = try await engine.inspect(nestedArchive, password: nil)
+            nestedInspectionResult = try await inspectArchiveWithPasswordRetry(
+                nestedArchive,
+                archiveName: nestedArchive.lastPathComponent,
+                initialPassword: nil,
+                jobID: jobID,
+                cancellationToken: cancellationToken
+            )
         } catch ArchiveEngineError.unsupported {
             return
         }
+        let nestedInspection = nestedInspectionResult.inspection
         try await Task.detached(priority: .userInitiated) {
             try cancellationToken.check()
             try ArchiveSecurity.validateInspection(
@@ -449,6 +442,14 @@ public final class ExtractionCoordinator: ObservableObject {
             try ArchiveSecurity.validateDiskSpace(for: nestedInspection, at: workspace.rootURL)
             try cancellationToken.check()
         }.value
+        let nestedPassword = try await testArchiveWithPasswordRetry(
+            nestedArchive,
+            archiveName: nestedArchive.lastPathComponent,
+            initialPassword: nestedInspectionResult.password,
+            jobID: jobID,
+            cancellationToken: cancellationToken,
+            progress: { _ in }
+        )
 
         let nextOutput = try await Task.detached(priority: .userInitiated) {
             try cancellationToken.check()
@@ -460,7 +461,7 @@ public final class ExtractionCoordinator: ObservableObject {
                 archive: nestedArchive,
                 inspection: nestedInspection,
                 to: nextOutput,
-                password: nil,
+                password: nestedPassword,
                 jobID: jobID,
                 depth: depth + 1,
                 progressStart: layerEnd,
@@ -481,6 +482,82 @@ public final class ExtractionCoordinator: ObservableObject {
             }.value
             throw error
         }
+    }
+
+    private func inspectArchiveWithPasswordRetry(
+        _ archive: URL,
+        archiveName: String,
+        initialPassword: String?,
+        jobID: UUID,
+        cancellationToken: ExtractionCancellationToken
+    ) async throws -> (inspection: ArchiveInspection, password: String?) {
+        var password = initialPassword
+        while true {
+            try cancellationToken.check()
+            do {
+                let inspection = try await engine.inspect(archive, password: password)
+                try cancellationToken.check()
+                if inspection.encrypted && password == nil {
+                    password = try await promptForPassword(
+                        jobID: jobID,
+                        archiveName: archiveName,
+                        message: AppLocalization.text("此压缩包已加密，请输入密码。")
+                    )
+                    continue
+                }
+                return (inspection, password)
+            } catch ArchiveEngineError.passwordRequired {
+                password = try await promptForPassword(
+                    jobID: jobID,
+                    archiveName: archiveName,
+                    message: AppLocalization.text("此压缩包需要密码。")
+                )
+            } catch ArchiveEngineError.wrongPassword {
+                password = try await promptForPassword(
+                    jobID: jobID,
+                    archiveName: archiveName,
+                    message: AppLocalization.text("密码错误，请重新输入。")
+                )
+            }
+        }
+    }
+
+    private func testArchiveWithPasswordRetry(
+        _ archive: URL,
+        archiveName: String,
+        initialPassword: String?,
+        jobID: UUID,
+        cancellationToken: ExtractionCancellationToken,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> String? {
+        var password = initialPassword
+        while true {
+            try cancellationToken.check()
+            do {
+                try await engine.test(archive, password: password, progress: progress)
+                try cancellationToken.check()
+                return password
+            } catch ArchiveEngineError.passwordRequired {
+                password = try await promptForPassword(
+                    jobID: jobID,
+                    archiveName: archiveName,
+                    message: AppLocalization.text("此压缩包需要密码。")
+                )
+            } catch ArchiveEngineError.wrongPassword {
+                password = try await promptForPassword(
+                    jobID: jobID,
+                    archiveName: archiveName,
+                    message: AppLocalization.text("密码错误，请重新输入。")
+                )
+            }
+        }
+    }
+
+    private func promptForPassword(jobID: UUID, archiveName: String, message: String) async throws -> String {
+        guard let password = await requestPassword(jobID: jobID, archiveName: archiveName, message: message) else {
+            throw ArchiveEngineError.cancelled
+        }
+        return password
     }
 
     private static let singleFileCompressionFormats: Set<String> = [
