@@ -97,6 +97,7 @@ fi
 mkdir -p "$contents_path/MacOS" "$contents_path/Resources"
 install -m 755 "$binary_path" "$contents_path/MacOS/UniversalExtractorApp"
 install -m 755 "$vendor_dir/7zz" "$contents_path/Resources/7zz"
+install -m 644 "$project_dir/Packaging/AppIcon.icns" "$contents_path/Resources/AppIcon.icns"
 install -m 644 "$project_dir/Packaging/Info.plist" "$contents_path/Info.plist"
 install -m 644 "$project_dir/LICENSE" "$contents_path/Resources/Project-License.txt"
 install -m 644 "$project_dir/Sources/UniversalExtractorApp/Resources/ThirdPartyNotices.txt" "$contents_path/Resources/ThirdPartyNotices.txt"
