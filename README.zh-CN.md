@@ -4,6 +4,16 @@
 
 面向 Apple Silicon Mac 的原生 SwiftUI 压缩与解压工具。万能解压根据文件内容识别压缩格式，也可创建常用格式压缩包，安全处理任务，并支持不打开主窗口的 Finder 右键解压。
 
+## 直接下载
+
+[**⬇ 下载万能解压 v1.5.0 macOS 版**](https://github.com/zhaochengxiaohao-design/unzip-tool-for-macOS/releases/download/v1.5.0/Universal-Extractor-v1.5.0-macOS-arm64.zip)
+
+适用于 Apple Silicon、macOS 14 或更高版本。这个 ZIP 已包含完整 App 和内置解压引擎，不需要另外下载运行组件或源码包。
+
+可选完整性校验：运行 `shasum -a 256 Universal-Extractor-v1.5.0-macOS-arm64.zip`，正确的 SHA-256 应为 `3245ef24572f78639b29ca0fb099f6d90e08f11f895850294ff5d3adc8a04b33`。
+
+下载后解压 ZIP。首次启动时请按住 Control 点击“万能解压”，选择“打开”，再确认 macOS 提示。公开构建采用 Hardened Runtime 的 ad-hoc 签名，但没有 Developer ID 签名或 Apple 公证。不要全局关闭 Gatekeeper，也不要全局移除 quarantine 属性。
+
 ## 功能亮点
 
 - 根据文件内容识别格式，不依赖文件扩展名。
@@ -41,12 +51,6 @@
 - `outputs/SHA256SUMS.txt`
 
 构建过程会使用固定的 SHA-256 值分别校验官方 7-Zip 26.02 下载归档和解包后的 `7zz` 可执行文件，并为 App 及内置引擎启用 Hardened Runtime 后执行 ad-hoc 签名。
-
-## 安装发布版
-
-从 GitHub Releases 页面下载 macOS 压缩包和 `SHA256SUMS.txt`。打开 App 前，运行 `shasum -a 256 Universal-Extractor-v1.5.0-macOS-arm64.zip`，并与 `SHA256SUMS.txt` 中对应的一行比较。
-
-公开构建采用 ad-hoc 签名，但项目没有 Developer ID 证书，因此未经 Apple 公证。首次启动时请按住 Control 点击“万能解压”，选择“打开”，再确认 macOS 提示。不要全局关闭 Gatekeeper，也不要全局移除 quarantine 属性。
 
 ## 安全策略
 

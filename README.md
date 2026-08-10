@@ -4,6 +4,16 @@
 
 A native SwiftUI compression and extraction utility for Apple Silicon Macs. It detects archives from file contents, creates common archive formats, runs extraction jobs safely, and integrates with Finder without forcing the main window to open.
 
+## Direct Download
+
+[**⬇ Download Universal Extractor v1.5.0 for macOS**](https://github.com/zhaochengxiaohao-design/unzip-tool-for-macOS/releases/download/v1.5.0/Universal-Extractor-v1.5.0-macOS-arm64.zip)
+
+Apple Silicon · macOS 14 or later · one ZIP containing the complete application and bundled extraction engine. No additional runtime or source package is required.
+
+Optional integrity check: run `shasum -a 256 Universal-Extractor-v1.5.0-macOS-arm64.zip`. The expected SHA-256 is `3245ef24572f78639b29ca0fb099f6d90e08f11f895850294ff5d3adc8a04b33`.
+
+After downloading, extract the ZIP. On first launch, Control-click **Universal Extractor**, choose **Open**, and confirm the macOS prompt. The public build is ad-hoc signed with Hardened Runtime, but it is not Developer ID signed or Apple-notarized. Do not disable Gatekeeper or remove quarantine attributes globally.
+
 ## Highlights
 
 - Detects formats by content instead of trusting filename extensions.
@@ -41,12 +51,6 @@ The script runs core and real-engine integration checks, builds an arm64 release
 - `outputs/SHA256SUMS.txt`
 
 The build verifies both the official 7-Zip 26.02 download archive and the extracted `7zz` executable against pinned SHA-256 values. It signs the app and bundled engine ad hoc with Hardened Runtime enabled.
-
-## Install a Release
-
-Download the macOS archive and `SHA256SUMS.txt` from the GitHub Releases page. Before opening the app, run `shasum -a 256 Universal-Extractor-v1.5.0-macOS-arm64.zip` and compare the result with the matching line in `SHA256SUMS.txt`.
-
-The public build is ad-hoc signed but is not Apple-notarized because the project does not have a Developer ID certificate. On first launch, Control-click **Universal Extractor**, choose **Open**, and confirm the macOS prompt. Do not disable Gatekeeper or remove quarantine attributes globally.
 
 ## Security Model
 
