@@ -2,6 +2,8 @@
 
 简体中文 | [English](README.md)
 
+![万能解压应用图标](Packaging/AppIcon.png)
+
 面向 Apple Silicon Mac 的原生 SwiftUI 压缩与解压工具。万能解压根据文件内容识别压缩格式，也可创建常用格式压缩包，安全处理任务，并支持不打开主窗口的 Finder 右键解压。
 
 ## 直接下载
@@ -10,7 +12,7 @@
 
 适用于 Apple Silicon、macOS 14 或更高版本。这个 ZIP 已包含完整 App 和内置解压引擎，不需要另外下载运行组件或源码包。
 
-可选完整性校验：运行 `shasum -a 256 Universal-Extractor-v1.5.0-macOS-arm64.zip`，正确的 SHA-256 应为 `3245ef24572f78639b29ca0fb099f6d90e08f11f895850294ff5d3adc8a04b33`。
+可选完整性校验：运行 `shasum -a 256 Universal-Extractor-v1.5.0-macOS-arm64.zip`，正确的 SHA-256 应为 `27d38c450647561508ad0c9ef28b5660f402ea05c8ba49fdb05c6cf0eb1b0b31`。
 
 ## 首次打开：在 macOS 中批准 App
 

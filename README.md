@@ -2,6 +2,8 @@
 
 [简体中文](README.zh-CN.md) | English
 
+![Universal Extractor app icon](Packaging/AppIcon.png)
+
 A native SwiftUI compression and extraction utility for Apple Silicon Macs. It detects archives from file contents, creates common archive formats, runs extraction jobs safely, and integrates with Finder without forcing the main window to open.
 
 ## Direct Download
@@ -10,7 +12,7 @@ A native SwiftUI compression and extraction utility for Apple Silicon Macs. It d
 
 Apple Silicon · macOS 14 or later · one ZIP containing the complete application and bundled extraction engine. No additional runtime or source package is required.
 
-Optional integrity check: run `shasum -a 256 Universal-Extractor-v1.5.0-macOS-arm64.zip`. The expected SHA-256 is `3245ef24572f78639b29ca0fb099f6d90e08f11f895850294ff5d3adc8a04b33`.
+Optional integrity check: run `shasum -a 256 Universal-Extractor-v1.5.0-macOS-arm64.zip`. The expected SHA-256 is `27d38c450647561508ad0c9ef28b5660f402ea05c8ba49fdb05c6cf0eb1b0b31`.
 
 ## First Launch: Allow the App in macOS
 
