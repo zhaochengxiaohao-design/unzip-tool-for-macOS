@@ -8,6 +8,8 @@ download_url="https://github.com/ip7z/7zip/releases/download/26.02/7z2602-mac.ta
 app_path="$project_dir/outputs/万能解压.app"
 archive_path="$project_dir/outputs/万能解压-macOS-arm64.zip"
 source_archive_path="$project_dir/outputs/万能解压-源代码.zip"
+release_archive_path="$project_dir/outputs/Universal-Extractor-v1.4.0-macOS-arm64.zip"
+release_source_path="$project_dir/outputs/Universal-Extractor-v1.4.0-Source.zip"
 package_dir=$(mktemp -d /tmp/universal-extractor-package.XXXXXX)
 packaged_app_path="$package_dir/万能解压.app"
 contents_path="$packaged_app_path/Contents"
@@ -77,7 +79,11 @@ if [[ -e "$source_archive_path" ]]; then
     mv "$source_archive_path" "$project_dir/work/万能解压-源代码-previous-$(date +%Y%m%d-%H%M%S).zip"
 fi
 ditto -c -k --norsrc --keepParent "$source_root" "$source_archive_path"
+ditto --norsrc "$archive_path" "$release_archive_path"
+ditto --norsrc "$source_archive_path" "$release_source_path"
 
 echo "构建完成：$app_path"
 echo "签名归档：$archive_path"
 echo "源代码归档：$source_archive_path"
+echo "GitHub Release：$release_archive_path"
+echo "GitHub Source：$release_source_path"

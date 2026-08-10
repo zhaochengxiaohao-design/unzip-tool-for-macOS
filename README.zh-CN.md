@@ -34,8 +34,8 @@
 脚本会运行核心检查和真实解压引擎集成测试，构建 arm64 发布版，执行 ad-hoc 签名，刷新 Finder 注册，并生成：
 
 - `outputs/万能解压.app`
-- `outputs/万能解压-macOS-arm64.zip`
-- `outputs/万能解压-源代码.zip`
+- `outputs/Universal-Extractor-v1.4.0-macOS-arm64.zip`
+- `outputs/Universal-Extractor-v1.4.0-Source.zip`
 
 由于未使用 Apple Developer ID，应用未经过公证。如需公开分发，请增加 Developer ID 签名和 Apple 公证流程。
 

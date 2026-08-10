@@ -34,8 +34,8 @@ Requirements:
 The script runs core and real-engine integration checks, builds an arm64 release, applies an ad-hoc signature, refreshes Finder registration, and creates:
 
 - `outputs/万能解压.app`
-- `outputs/万能解压-macOS-arm64.zip`
-- `outputs/万能解压-源代码.zip`
+- `outputs/Universal-Extractor-v1.4.0-macOS-arm64.zip`
+- `outputs/Universal-Extractor-v1.4.0-Source.zip`
 
 The app is not notarized because no Apple Developer ID is used. For redistribution, add Developer ID signing and Apple notarization.
 
