@@ -10,6 +10,8 @@
 
 适用于 Apple Silicon、macOS 14 或更高版本。这个 ZIP 已包含完整 App 和内置解压引擎，不需要另外下载运行组件或源码包。
 
+可选完整性校验：运行 `shasum -a 256 Universal-Extractor-v1.5.0-macOS-arm64.zip`，正确的 SHA-256 应为 `3245ef24572f78639b29ca0fb099f6d90e08f11f895850294ff5d3adc8a04b33`。
+
 下载后解压 ZIP。首次启动时请按住 Control 点击“万能解压”，选择“打开”，再确认 macOS 提示。公开构建采用 Hardened Runtime 的 ad-hoc 签名，但没有 Developer ID 签名或 Apple 公证。不要全局关闭 Gatekeeper，也不要全局移除 quarantine 属性。
 
 ## 功能亮点
