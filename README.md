@@ -12,7 +12,7 @@ A native SwiftUI compression and extraction utility for Apple Silicon Macs. It d
 
 Apple Silicon · macOS 14 or later · one ZIP containing the complete application and bundled extraction engine. No additional runtime or source package is required.
 
-Optional integrity check: run `shasum -a 256 Universal-Extractor-v1.5.0-macOS-arm64.zip`. The expected SHA-256 is `86a2bde33ed3e6f018d1d41ed2b0148d2f074b490ca856fe90bb685bcd76043d`.
+Optional integrity check: run `shasum -a 256 Universal-Extractor-v1.5.0-macOS-arm64.zip`. The expected SHA-256 is `16c88e7d1f5e2739679dc81747ec611a344c1daf39755e372c2882bb4c6ab425`.
 
 ## First Launch: Allow the App in macOS
 
