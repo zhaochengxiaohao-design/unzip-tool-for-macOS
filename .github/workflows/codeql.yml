@@ -39,4 +39,4 @@ jobs:
         run: swift build --arch arm64 --product UniversalExtractorApp -Xswiftc -warnings-as-errors
 
       - name: Analyze
-        uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
